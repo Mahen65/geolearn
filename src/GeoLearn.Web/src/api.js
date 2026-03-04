@@ -6,6 +6,12 @@ export async function fetchCountries() {
   return res.json();
 }
 
+export async function fetchAllCountries() {
+  const res = await fetch(`${BASE}/countries`);
+  if (!res.ok) throw new Error(`Failed to fetch countries: ${res.status}`);
+  return res.json();
+}
+
 /**
  * Fetch filter options for a country.
  *

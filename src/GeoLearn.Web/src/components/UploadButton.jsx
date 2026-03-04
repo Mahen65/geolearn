@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { uploadShapefile, fetchCountries } from '../api';
+import { uploadShapefile, fetchAllCountries } from '../api';
 
 const wrapStyle = {
   position: 'absolute',
@@ -46,7 +46,7 @@ export default function UploadButton({ onUploadSuccess }) {
   const [countryCode, setCountryCode] = useState('LK');
 
   useEffect(() => {
-    fetchCountries()
+    fetchAllCountries()
       .then(list => {
         setCountries(list);
         if (list.length > 0 && !list.some(c => c.code === countryCode))
