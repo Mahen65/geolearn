@@ -1,0 +1,26 @@
+@GeoLearn.Api_HostAddress = http://localhost:5168
+
+### Upload shapefile
+POST {{GeoLearn.Api_HostAddress}}/workobjects/upload
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample_forest_parcels.zip"
+Content-Type: application/zip
+
+< ../../sample_forest_parcels.zip
+--boundary--
+
+###
+
+### Get all work objects (GeoJSON FeatureCollection)
+GET {{GeoLearn.Api_HostAddress}}/workobjects
+Accept: application/json
+
+###
+
+### Get single work object
+GET {{GeoLearn.Api_HostAddress}}/workobjects/1
+Accept: application/json
+
+###

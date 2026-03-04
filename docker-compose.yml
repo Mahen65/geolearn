@@ -1,0 +1,79 @@
+name: geolearn
+
+services:
+  postgis:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: geolearn
+      POSTGRES_USER: geolearn
+      POSTGRES_PASSWORD: geolearn
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geolearn -d geolearn"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: src/GeoLearn.Api
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Override connection string — "postgis" resolves to the postgis service on the Docker network
+      ConnectionStrings__Default: "Host=postgis;Port=5432;Database=geolearn;Username=geolearn;Password=geolearn"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: src/GeoLearn.Web
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: "http://localhost:8080"
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./src/GeoLearn.Web/src:/app/src
+    depends_on:
+      - api
+
+  shapefile-tool:
+    build:
+      context: src/shapefile-tool
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./hotosm_lka_buildings_polygons_shp.zip:/data/source.zip:ro
+    environment:
+      SOURCE_SHAPEFILE: /data/source.zip
+      FLASK_DEBUG: "0"
+      DATABASE_URL: "postgresql://geolearn:geolearn@postgis:5432/geolearn"
+    depends_on:
+      postgis:
+        condition: service_healthy
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@geolearn.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  postgis_data:
+  pgadmin_data:

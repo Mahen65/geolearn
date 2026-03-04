@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Shapefile Tool — ForestLink</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    #map { height: 100vh; width: 100%; }
+
+    #panel {
+      position: absolute;
+      top: 10px; right: 10px;
+      z-index: 1000;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.25);
+      width: 260px;
+      padding: 16px;
+    }
+
+    #panel h2 { font-size: 15px; margin-bottom: 4px; color: #1a1a1a; }
+    #panel p.hint { font-size: 12px; color: #777; margin-bottom: 14px; line-height: 1.4; }
+
+    .field-label { font-size: 11px; font-weight: 600; color: #374151; margin-bottom: 4px; display: block; }
+    .text-input {
+      width: 100%; padding: 7px 10px; margin-bottom: 10px;
+      border: 1px solid #d1d5db; border-radius: 6px;
+      font-size: 13px; color: #1a1a1a; outline: none;
+    }
+    .text-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+
+    /* rotation / scale handle cursors */
+    .leaflet-path-transform-handle { cursor: crosshair; }
+    /* side handles */
+    .side-handle-N path, .side-handle-S path { cursor: ns-resize !important; }
+    .side-handle-E path, .side-handle-W path { cursor: ew-resize !important; }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 9px 12px;
+      margin-bottom: 8px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn:not(:disabled):hover { opacity: .85; }
+
+    .btn-blue   { background: #2563eb; color: #fff; }
+    .btn-green  { background: #16a34a; color: #fff; }
+    .btn-red    { background: #dc2626; color: #fff; }
+    .btn-gray   { background: #e5e7eb; color: #374151; }
+
+    #status {
+      margin-top: 10px;
+      font-size: 12px;
+      min-height: 18px;
+      line-height: 1.4;
+    }
+    #status.error { color: #dc2626; }
+    #status.ok    { color: #16a34a; }
+    #status.info  { color: #2563eb; }
+
+    #coord-box {
+      margin-top: 12px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 11px;
+      color: #374151;
+      display: none;
+    }
+    #coord-box pre { white-space: pre-wrap; word-break: break-all; }
+
+    .select-input {
+      width: 100%; padding: 7px 10px; margin-bottom: 10px;
+      border: 1px solid #d1d5db; border-radius: 6px;
+      font-size: 13px; color: #1a1a1a; background: #fff;
+      outline: none; cursor: pointer; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+    .select-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="panel">
+  <h2>Shapefile Tool</h2>
+  <p class="hint">Draw a shape. Then: <strong>drag body</strong> to move · <strong>top handle</strong> to rotate · <strong>corners</strong> to scale.</p>
+
+  <label class="field-label" for="countrySelect">Focus country</label>
+  <select id="countrySelect" class="select-input" onchange="focusCountry(this.value)">
+    <option value="">— loading… —</option>
+  </select>
+
+  <label class="field-label" for="exportName">Export filename</label>
+  <input id="exportName" class="text-input" type="text" placeholder="my_area" value="my_area"/>
+
+  <button class="btn btn-gray"  id="countBtn"  disabled onclick="checkCount()">Check feature count</button>
+  <button class="btn btn-blue"  id="clipBtn"   disabled onclick="clipBuildings()">Clip buildings &amp; download</button>
+  <button class="btn btn-green" id="exportBtn" disabled onclick="exportPolygon()">Export selection as shapefile</button>
+  <button class="btn btn-red" onclick="clearSelection()">Clear selection</button>
+
+  <div id="status"></div>
+  <div id="coord-box"><strong>Selection GeoJSON:</strong><br/><pre id="coord-text"></pre></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script src="/static/leaflet-path-transform.js"></script>
+<script>
+  // ── Country focus ──────────────────────────────────────────────────────────
+  async function loadCountries() {
+    const sel = document.getElementById('countrySelect');
+    try {
+      const res = await fetch('/countries');
+      if (!res.ok) throw new Error('Failed to load');
+      const list = await res.json();
+      sel.innerHTML = '<option value="">— select a country —</option>';
+      list.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = `${c.lat},${c.lng},${c.zoom}`;
+        opt.textContent = c.name;
+        sel.appendChild(opt);
+      });
+    } catch (e) {
+      sel.innerHTML = '<option value="">— could not load countries —</option>';
+    }
+  }
+
+  function focusCountry(value) {
+    if (!value) return;
+    const [lat, lng, zoom] = value.split(',').map(Number);
+    map.flyTo([lat, lng], zoom, { duration: 1.2 });
+  }
+
+  // ── Map setup — centred on Colombo, Sri Lanka ──────────────────────────────
+  const map = L.map('map').setView([6.9271, 79.8612], 12);
+  loadCountries();
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  // ── Draw controls ──────────────────────────────────────────────────────────
+  const drawnItems = new L.FeatureGroup();
+  map.addLayer(drawnItems);
+
+  // No edit toolbar — leaflet-path-transform handles move / rotate / scale
+  const drawControl = new L.Control.Draw({
+    edit: false,
+    draw: {
+      rectangle: { shapeOptions: { color: '#2563eb', weight: 2 } },
+      polygon:   { shapeOptions: { color: '#2563eb', weight: 2 } },
+      circle: false, circlemarker: false, marker: false, polyline: false,
+    },
+  });
+  map.addControl(drawControl);
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let currentGeometry = null;
+  let activeLayer = null;
+
+  // ── Side handle state ──────────────────────────────────────────────────────
+  let sideHandleGroup = null;
+  const sideHandles = {};
+
+  // Returns the map position of a side handle (N/S/E/W midpoint of bbox)
+  function sideHandlePos(layer, dir) {
+    const b = layer.getBounds();
+    const midLat = (b.getNorth() + b.getSouth()) / 2;
+    const midLng = (b.getEast()  + b.getWest())  / 2;
+    return dir === 'N' ? L.latLng(b.getNorth(), midLng)
+         : dir === 'S' ? L.latLng(b.getSouth(), midLng)
+         : dir === 'E' ? L.latLng(midLat, b.getEast())
+                       : L.latLng(midLat, b.getWest());
+  }
+
+  // Stretch the layer's latlngs along one axis, anchored at the opposite edge
+  function applyAxisScale(latlngs, origBounds, dir, handleLatLng) {
+    const b   = origBounds;
+    const bN  = b.getNorth(), bS = b.getSouth();
+    const bE  = b.getEast(),  bW = b.getWest();
+    const spanH = bN - bS || 1e-10;
+    const spanW = bE - bW || 1e-10;
+
+    function scalePoint(ll) {
+      if (Array.isArray(ll)) return ll.map(scalePoint);
+      let lat = ll.lat, lng = ll.lng;
+      if (dir === 'N') { const s = (handleLatLng.lat - bS) / spanH; lat = bS + (lat - bS) * s; }
+      if (dir === 'S') { const s = (bN - handleLatLng.lat) / spanH; lat = bN - (bN - lat) * s; }
+      if (dir === 'E') { const s = (handleLatLng.lng - bW) / spanW; lng = bW + (lng - bW) * s; }
+      if (dir === 'W') { const s = (bE - handleLatLng.lng) / spanW; lng = bE - (bE - lng) * s; }
+      return L.latLng(lat, lng);
+    }
+    return scalePoint(latlngs);
+  }
+
+  function updateSideHandlePositions(layer) {
+    ['N', 'S', 'E', 'W'].forEach(dir => {
+      if (sideHandles[dir]) sideHandles[dir].setLatLng(sideHandlePos(layer, dir));
+    });
+  }
+
+  function removeSideHandles() {
+    if (sideHandleGroup) { sideHandleGroup.remove(); sideHandleGroup = null; }
+    ['N', 'S', 'E', 'W'].forEach(d => delete sideHandles[d]);
+  }
+
+  function attachSideHandles(layer) {
+    removeSideHandles();
+    sideHandleGroup = L.layerGroup().addTo(map);
+
+    ['N', 'S', 'E', 'W'].forEach(dir => {
+      const isVertical = dir === 'N' || dir === 'S';
+      const handle = L.circleMarker(sideHandlePos(layer, dir), {
+        radius: 5,
+        fillColor: isVertical ? '#bfdbfe' : '#bbf7d0',  // blue=V, green=H
+        color: '#202020',
+        fillOpacity: 1,
+        weight: 2,
+        opacity: 0.85,
+        className: `side-handle side-handle-${dir}`,
+      }).addTo(sideHandleGroup);
+
+      // Drag via PathDrag (patched on all L.Path by the plugin)
+      handle.makeDraggable();
+      handle.dragging.enable();
+
+      let origBounds, origLatLngs;
+
+      handle.on('mousedown', () => {
+        origBounds  = layer.getBounds();
+        origLatLngs = layer.getLatLngs();
+      });
+
+      handle.on('drag', () => {
+        const newLl = handle.getLatLng();
+        layer.setLatLngs(applyAxisScale(origLatLngs, origBounds, dir, newLl));
+        layer.redraw();
+        if (layer.transform) layer.transform.reset();   // reposition corner handles
+        updateSideHandlePositions(layer);
+      });
+
+      handle.on('dragend', () => {
+        currentGeometry = layer.toGeoJSON().geometry;
+        showCoords(currentGeometry);
+      });
+
+      sideHandles[dir] = handle;
+    });
+  }
+
+  // ── leaflet-path-transform 1.9.0 ──────────────────────────────────────────
+  // Layers created by Leaflet.Draw don't get {transform:true} in options so
+  // addInitHook never fires — instantiate Transform manually after each draw.
+  function attachTransform(layer) {
+    const TransformClass = window.PathTransform && window.PathTransform.Transform;
+    if (!TransformClass) {
+      console.warn('leaflet-path-transform not loaded');
+      return;
+    }
+
+    // ── Drag (move) ──
+    if (typeof layer.makeDraggable === 'function') {
+      layer.makeDraggable();
+      layer.dragging.enable();
+      layer.on('dragend', () => {
+        currentGeometry = layer.toGeoJSON().geometry;
+        showCoords(currentGeometry);
+        updateSideHandlePositions(layer);
+      });
+    }
+
+    // ── Rotate + corner-scale ──
+    layer.transform = new TransformClass(layer, { rotation: true, scaling: true });
+    layer.transform.enable();
+    layer.on('transformed', () => {
+      currentGeometry = layer.toGeoJSON().geometry;
+      showCoords(currentGeometry);
+      updateSideHandlePositions(layer);
+    });
+
+    // ── N/S/E/W side handles for axis-only scaling ──
+    attachSideHandles(layer);
+  }
+
+  map.on(L.Draw.Event.CREATED, e => {
+    // Remove previous shape
+    if (activeLayer) {
+      if (activeLayer.transform) activeLayer.transform.disable();
+      drawnItems.removeLayer(activeLayer);
+    }
+
+    activeLayer = e.layer;
+    drawnItems.addLayer(activeLayer);   // must be on the map before transform attaches
+    attachTransform(activeLayer);
+
+    currentGeometry = activeLayer.toGeoJSON().geometry;
+    enableButtons(true);
+    showCoords(currentGeometry);
+    setStatus('Area selected. Drag to move · top handle to rotate · corners to scale.', 'info');
+  });
+
+  // ── UI helpers ─────────────────────────────────────────────────────────────
+  function enableButtons(on) {
+    ['countBtn', 'clipBtn', 'exportBtn'].forEach(id => {
+      document.getElementById(id).disabled = !on;
+    });
+  }
+
+  function setStatus(msg, type = '') {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = type;
+  }
+
+  function showCoords(geom) {
+    const box = document.getElementById('coord-box');
+    document.getElementById('coord-text').textContent = JSON.stringify(geom, null, 2);
+    box.style.display = 'block';
+  }
+
+  function resetState() {
+    currentGeometry = null;
+    enableButtons(false);
+    document.getElementById('coord-box').style.display = 'none';
+    setStatus('');
+  }
+
+  function getExportName() {
+    const raw = document.getElementById('exportName').value.trim();
+    // strip any path separators and collapse whitespace
+    return raw.replace(/[/\\]/g, '').replace(/\s+/g, '_') || 'my_area';
+  }
+
+  function clearSelection() {
+    if (activeLayer) {
+      if (activeLayer.transform) activeLayer.transform.disable();
+      if (activeLayer.dragging) activeLayer.dragging.disable();
+      activeLayer = null;
+    }
+    removeSideHandles();
+    drawnItems.clearLayers();
+    resetState();
+  }
+
+  // ── API calls ──────────────────────────────────────────────────────────────
+  async function checkCount() {
+    if (!currentGeometry) return;
+    setStatus('Counting features in area…', 'info');
+    document.getElementById('countBtn').disabled = true;
+    try {
+      const res = await fetch('/feature-count', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geometry: currentGeometry }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Request failed');
+      setStatus(`${json.count.toLocaleString()} building(s) in selection.`, 'ok');
+    } catch (e) {
+      setStatus('Error: ' + e.message, 'error');
+    } finally {
+      document.getElementById('countBtn').disabled = false;
+    }
+  }
+
+  async function clipBuildings() {
+    if (!currentGeometry) return;
+    setStatus('Clipping buildings — this may take a moment…', 'info');
+    document.getElementById('clipBtn').disabled = true;
+    try {
+      const res = await fetch('/clip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geometry: currentGeometry }),
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || 'Clip failed');
+      }
+      downloadBlob(await res.blob(), `${getExportName()}_buildings.zip`);
+      setStatus('Download ready!', 'ok');
+    } catch (e) {
+      setStatus('Error: ' + e.message, 'error');
+    } finally {
+      document.getElementById('clipBtn').disabled = false;
+    }
+  }
+
+  async function exportPolygon() {
+    if (!currentGeometry) return;
+    setStatus('Exporting selection…', 'info');
+    document.getElementById('exportBtn').disabled = true;
+    try {
+      const res = await fetch('/export-polygon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geometry: currentGeometry }),
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || 'Export failed');
+      }
+      downloadBlob(await res.blob(), `${getExportName()}.zip`);
+      setStatus('Download ready!', 'ok');
+    } catch (e) {
+      setStatus('Error: ' + e.message, 'error');
+    } finally {
+      document.getElementById('exportBtn').disabled = false;
+    }
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+</script>
+</body>
+</html>

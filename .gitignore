@@ -1,0 +1,32 @@
+# Claude Code local settings
+.claude/
+
+# Large data files
+hotosm_lka_buildings_polygons_shp.zip
+
+# .NET build artifacts
+**/bin/
+**/obj/
+
+# Node / frontend
+src/GeoLearn.Web/node_modules/
+src/GeoLearn.Web/dist/
+
+# Python
+**/__pycache__/
+**/*.pyc
+src/shapefile-tool/.venv/
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Secrets / environment overrides
+.env
+.env.local
+*.env.local
