@@ -58,13 +58,26 @@ export default function UploadButton({ onUploadSuccess }) {
   async function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
+
+    // Auto-detect country code from filename produced by shapefile tool:
+    // pattern: {name}_{CC}_buildings.zip  or  {name}_{CC}.zip
+    let uploadCode = countryCode;
+    const match = file.name.match(/_([A-Z]{2})(?:_buildings)?\.zip$/i);
+    if (match) {
+      const detected = match[1].toUpperCase();
+      if (countries.some(c => c.code === detected)) {
+        uploadCode = detected;
+        setCountryCode(detected);
+      }
+    }
+
     setStatus('uploading');
     setMessage('');
     try {
-      const result = await uploadShapefile(file, countryCode);
+      const result = await uploadShapefile(file, uploadCode);
       setStatus('ok');
       setMessage(`Imported ${result.inserted ?? '?'} feature(s).`);
-      onUploadSuccess(countryCode);
+      onUploadSuccess(uploadCode);
     } catch (err) {
       setStatus('error');
       setMessage(err.message);

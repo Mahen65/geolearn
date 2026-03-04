@@ -135,7 +135,7 @@
       sel.innerHTML = '<option value="">— select a country —</option>';
       list.forEach(c => {
         const opt = document.createElement('option');
-        opt.value = `${c.lat},${c.lng},${c.zoom}`;
+        opt.value = `${c.code}:${c.lat},${c.lng},${c.zoom}`;
         opt.textContent = c.name;
         sel.appendChild(opt);
       });
@@ -146,8 +146,14 @@
 
   function focusCountry(value) {
     if (!value) return;
-    const [lat, lng, zoom] = value.split(',').map(Number);
+    const [code, coords] = value.split(':');
+    const [lat, lng, zoom] = coords.split(',').map(Number);
     map.flyTo([lat, lng], zoom, { duration: 1.2 });
+  }
+
+  function getCountryCode() {
+    const val = document.getElementById('countrySelect').value;
+    return val ? val.split(':')[0] : 'XX';
   }
 
   // ── Map setup — centred on Colombo, Sri Lanka ──────────────────────────────
@@ -397,7 +403,7 @@
         const json = await res.json();
         throw new Error(json.error || 'Clip failed');
       }
-      downloadBlob(await res.blob(), `${getExportName()}_buildings.zip`);
+      downloadBlob(await res.blob(), `${getExportName()}_${getCountryCode()}_buildings.zip`);
       setStatus('Download ready!', 'ok');
     } catch (e) {
       setStatus('Error: ' + e.message, 'error');
@@ -420,7 +426,7 @@
         const json = await res.json();
         throw new Error(json.error || 'Export failed');
       }
-      downloadBlob(await res.blob(), `${getExportName()}.zip`);
+      downloadBlob(await res.blob(), `${getExportName()}_${getCountryCode()}.zip`);
       setStatus('Download ready!', 'ok');
     } catch (e) {
       setStatus('Error: ' + e.message, 'error');
